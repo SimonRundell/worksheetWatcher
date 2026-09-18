@@ -1,0 +1,15 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+*.user
+*.suo
+.vs/
+
+## Rider
+.idea/
+
+## Local test artefacts
+WorksheetWatcher-diagnostics-*.txt

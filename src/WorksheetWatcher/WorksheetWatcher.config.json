@@ -1,0 +1,12 @@
+{
+  "excludedSectionGroupNames": [
+    "Content Library",
+    "Collaboration Space",
+    "Teacher Only"
+  ],
+  "pollIntervalSeconds": 25,
+  "thumbnailWidth": 320,
+  "thumbnailHeight": 240,
+  "maxStudents": 30,
+  "genericGroupLabel": "Section Group"
+}

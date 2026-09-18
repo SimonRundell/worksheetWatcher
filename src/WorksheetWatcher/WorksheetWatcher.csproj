@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>WorksheetWatcher</RootNamespace>
+    <AssemblyName>WorksheetWatcher</AssemblyName>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Platforms>AnyCPU</Platforms>
+    <Version>1.0.0</Version>
+    <Authors>Simon Rundell</Authors>
+    <Product>Worksheet Watcher - Live Class Notebook Viewer</Product>
+    <Copyright>Copyright (c) 2026 Simon Rundell. CC BY-NC-SA 4.0.</Copyright>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>appicon.ico</ApplicationIcon>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Also embed the icon so the windows can set Form.Icon from it at run time. -->
+  <ItemGroup>
+    <EmbeddedResource Include="appicon.ico" LogicalName="WorksheetWatcher.appicon.ico" />
+  </ItemGroup>
+
+  <!--
+    OneNote COM interop, copied from the sibling WheresTheWork project (D:\WherestheWork),
+    where it was generated once with TlbImp from the "Microsoft OneNote 15.0 Type Library"
+    (ONENOTE.EXE typelib resource). Referenced with EmbedInteropTypes, so the types are
+    baked into WorksheetWatcher.exe and no extra file ships.
+
+    Why a pre-generated interop rather than late binding: on Click-to-Run OneNote the type
+    library is registered only under Win32, and OneNote's own IDispatch::GetTypeInfo /
+    GetIDsOfNames return errors on this install, so every typelib-driven late-binding path
+    (dynamic, Type.InvokeMember) fails with 0x8002801D / E_FAIL. A generated interop calls
+    straight down the interface vtable and does not touch the type library at run time.
+
+    To regenerate (only needed if the OneNote object model changes):
+      "%ProgramFiles(x86)%\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8.1 Tools\x64\TlbImp.exe" ^
+        "%ProgramFiles%\Microsoft Office\Root\Office16\ONENOTE.EXE\3" ^
+        /out:libs\Interop.Microsoft.Office.Interop.OneNote.dll ^
+        /namespace:Microsoft.Office.Interop.OneNote /silent
+  -->
+  <ItemGroup>
+    <Reference Include="Interop.Microsoft.Office.Interop.OneNote">
+      <HintPath>libs\Interop.Microsoft.Office.Interop.OneNote.dll</HintPath>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="WorksheetWatcher.config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
