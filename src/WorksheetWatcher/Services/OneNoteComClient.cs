@@ -21,11 +21,18 @@ namespace WorksheetWatcher.Services;
 /// </summary>
 public sealed class OneNoteComClient : IDisposable
 {
-    // HRESULTs OneNote raises transiently while it is busy syncing or servicing another
-    // call. Worth a short retry rather than a hard failure.
+    // HRESULTs OneNote/DCOM raise transiently while OneNote is busy, still starting, or
+    // servicing another call - including a second activation request arriving while one is
+    // already in flight, which this app can trigger (the notebook picker, the worksheet
+    // lookup, and the watch session each activate their own Application COM object, from
+    // different threads, and can overlap). Worth a short retry rather than a hard failure.
     private const int RpcServerCallRetryLater = unchecked((int)0x8001010A); // RPC_E_SERVERCALL_RETRYLATER
     private const int RpcCallRejected = unchecked((int)0x80010001);         // RPC_E_CALL_REJECTED
     private const int RpcServerUnavailable = unchecked((int)0x800706BA);    // RPC_S_SERVER_UNAVAILABLE
+    private const int RpcCallFailedDidNotExecute = unchecked((int)0x800706BF); // RPC_S_CALL_FAILED_DNE
+
+    private static bool IsTransient(int hresult) =>
+        hresult is RpcServerCallRetryLater or RpcCallRejected or RpcServerUnavailable or RpcCallFailedDidNotExecute;
 
     private Interop.Application? _app;
 
@@ -33,23 +40,34 @@ public sealed class OneNoteComClient : IDisposable
     public bool IsConnected => _app is not null;
 
     /// <summary>
-    /// Instantiates the OneNote automation object. Throws
-    /// <see cref="OneNoteUnavailableException"/> with a user-facing message if OneNote is
-    /// not installed or cannot be started for COM.
+    /// Instantiates the OneNote automation object, retrying transient COM activation
+    /// failures a few times first. Throws <see cref="OneNoteUnavailableException"/> with a
+    /// user-facing message if OneNote is not installed, or still cannot be reached after
+    /// retrying.
     /// </summary>
     public void Connect()
     {
         if (_app is not null) return;
 
-        try
+        const int maxAttempts = 4;
+
+        for (var attempt = 1; ; attempt++)
         {
-            _app = new Interop.Application();
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or MemberAccessException or TypeInitializationException or FileNotFoundException)
-        {
-            throw new OneNoteUnavailableException(
-                "OneNote could not be reached. Make sure the classic desktop version of " +
-                "OneNote is installed and open with your Class Notebook loaded, then try again.", ex);
+            try
+            {
+                _app = new Interop.Application();
+                return;
+            }
+            catch (COMException com) when (IsTransient(com.HResult) && attempt < maxAttempts)
+            {
+                Thread.Sleep(250 * attempt);
+            }
+            catch (Exception ex) when (ex is COMException or InvalidCastException or MemberAccessException or TypeInitializationException or FileNotFoundException)
+            {
+                throw new OneNoteUnavailableException(
+                    "OneNote could not be reached. Make sure the classic desktop version of " +
+                    "OneNote is installed and open with your Class Notebook loaded, then try again.", ex);
+            }
         }
     }
 
@@ -148,7 +166,7 @@ public sealed class OneNoteComClient : IDisposable
             }
             catch (COMException com)
             {
-                if (com.HResult is RpcServerCallRetryLater or RpcCallRejected or RpcServerUnavailable && attempt < maxAttempts)
+                if (IsTransient(com.HResult) && attempt < maxAttempts)
                 {
                     Thread.Sleep(250 * attempt);
                     continue;

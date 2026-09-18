@@ -32,6 +32,11 @@ public sealed class MainForm : Form
     private FullScreenViewForm? _fullScreen;
     private IReadOnlyList<NotebookInfo> _notebooks = Array.Empty<NotebookInfo>();
 
+    // Guards against two overlapping notebook reads racing to activate OneNote's COM
+    // object at once (e.g. flipping quickly through the Notebook dropdown) - each call
+    // takes the next number and only applies its result if still the latest.
+    private int _worksheetLoadGeneration;
+
     private readonly ComboBox _cboNotebook = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
@@ -205,6 +210,13 @@ public sealed class MainForm : Form
         {
             _lblStatus.Text = ex.Message;
         }
+        catch (Exception ex)
+        {
+            // Belt and braces: never let an unexpected COM hiccup escape to the top-level
+            // handler and pop an alarming raw error dialog mid-lesson - degrade to the
+            // status bar instead, same as the specific exception types above.
+            _lblStatus.Text = $"Could not load notebooks: {ex.Message}";
+        }
         finally
         {
             _cboNotebook.Enabled = true;
@@ -220,6 +232,14 @@ public sealed class MainForm : Form
     {
         if (_cboNotebook.SelectedItem is not NotebookInfo notebook) return;
 
+        // Flipping quickly through the Notebook dropdown fires this repeatedly; each call
+        // claims the next generation and, once its Task.Run returns, only applies its
+        // result if nothing newer has started since - otherwise a slower, stale request
+        // could overwrite what a faster, later one just populated, and two overlapping
+        // calls both activating OneNote's COM object at once is exactly the kind of race
+        // that can trip a transient RPC failure.
+        var generation = ++_worksheetLoadGeneration;
+
         var previousText = _cboWorksheet.Text;
         _cboWorksheet.Items.Clear();
         _lblStatus.Text = $"Reading '{notebook.DisplayName}'...";
@@ -234,6 +254,8 @@ public sealed class MainForm : Form
                 return resolver.GetDistinctPageTitles(notebook.Id);
             });
 
+            if (generation != _worksheetLoadGeneration) return; // superseded - discard
+
             foreach (var title in titles) _cboWorksheet.Items.Add(title);
 
             _cboWorksheet.Text =
@@ -243,13 +265,21 @@ public sealed class MainForm : Form
 
             _lblStatus.Text = $"{titles.Count} distinct page title(s) found in '{notebook.DisplayName}'.";
         }
-        catch (OneNoteContentException ex)
+        catch (Exception ex)
         {
-            _lblStatus.Text = $"Could not read that notebook: {ex.Message}";
+            // Swallow a stale (superseded) request's failure entirely - a newer request
+            // already owns the status bar. Otherwise, report it: OneNoteUnavailableException
+            // and OneNoteContentException carry a friendly message already; anything else
+            // (belt and braces) still degrades to the status bar rather than escaping to
+            // the top-level handler and popping a raw error dialog mid-lesson.
+            if (generation == _worksheetLoadGeneration)
+                _lblStatus.Text = ex is OneNoteUnavailableException or OneNoteContentException
+                    ? ex.Message
+                    : $"Could not read that notebook: {ex.Message}";
         }
         finally
         {
-            _btnStart.Enabled = true;
+            if (generation == _worksheetLoadGeneration) _btnStart.Enabled = true;
         }
     }
 
