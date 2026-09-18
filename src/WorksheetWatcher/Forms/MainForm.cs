@@ -10,8 +10,8 @@ namespace WorksheetWatcher.Forms;
 /// <summary>
 /// The application's main window: pick an open notebook and a worksheet (a page title
 /// recurring across students), start watching, and see a scrollable grid of up to
-/// <c>AppConfig.MaxStudents</c> live-updating student thumbnails. Click a tile to see that
-/// student full screen; hover a tile to peek at a larger preview without leaving the grid.
+/// <c>AppConfig.MaxStudents</c> live-updating student thumbnails. Click a tile, or its
+/// magnifying-glass button, to see that student full screen.
 /// </summary>
 public sealed class MainForm : Form
 {
@@ -86,38 +86,6 @@ public sealed class MainForm : Form
     // Ticks the "updated Ns ago" captions between poll cycles - no OneNote calls here.
     private readonly System.Windows.Forms.Timer _captionTimer = new() { Interval = 5000 };
 
-    // The zoom overlay's screen position is always centred on this window, never anchored
-    // to the hovered tile - a tile scrolled low in the grid would otherwise push a
-    // cursor-anchored popup off the bottom of the screen. It just redraws whatever bitmap
-    // the tile already has cached, so hovering costs nothing extra (no OneNote calls).
-    private readonly Panel _zoomOverlay = new()
-    {
-        Visible = false,
-        BackColor = Color.Black,
-        Padding = new Padding(1) // a thin dark frame around the picture
-    };
-    private readonly PictureBox _zoomPicture = new()
-    {
-        Dock = DockStyle.Fill,
-        SizeMode = PictureBoxSizeMode.Zoom,
-        BackColor = Color.White
-    };
-    private readonly Label _zoomCaption = new()
-    {
-        Dock = DockStyle.Top,
-        Height = 28,
-        TextAlign = ContentAlignment.MiddleCenter,
-        Font = new Font(BaseFontFamily, 10.5f, FontStyle.Bold),
-        BackColor = Color.Black,
-        ForeColor = Color.White
-    };
-
-    // Tracks which tile is currently hovered so a poll update mid-hover can keep the
-    // overlay's image live, and so leaving one child control and entering a sibling of the
-    // same tile doesn't flicker the overlay off and on.
-    private StudentThumbnailControl? _hoveredTile;
-    private readonly System.Windows.Forms.Timer _hoverLeaveTimer = new() { Interval = 120 };
-
     public MainForm()
     {
         _config = AppConfig.Load(out var configWarning);
@@ -148,8 +116,7 @@ public sealed class MainForm : Form
             _lblStatus.Text = configWarning;
 
         Shown += async (_, _) => await LoadNotebooksAsync();
-        Resize += (_, _) => { if (_zoomOverlay.Visible) PositionZoomOverlay(); };
-        FormClosing += (_, _) => { _poller?.Dispose(); _captionTimer.Dispose(); _hoverLeaveTimer.Dispose(); };
+        FormClosing += (_, _) => { _poller?.Dispose(); _captionTimer.Dispose(); };
     }
 
     /// <summary>
@@ -192,13 +159,9 @@ public sealed class MainForm : Form
         var statusPanel = new Panel { Dock = DockStyle.Top, Height = 26, Padding = new Padding(8, 0, 8, 4) };
         statusPanel.Controls.Add(_lblStatus);
 
-        _zoomOverlay.Controls.Add(_zoomPicture);
-        _zoomOverlay.Controls.Add(_zoomCaption);
-
         Controls.Add(_grid);
         Controls.Add(statusPanel);
         Controls.Add(top);
-        Controls.Add(_zoomOverlay);
     }
 
     private void WireEvents()
@@ -210,54 +173,6 @@ public sealed class MainForm : Form
         _btnRefreshNow.Click += (_, _) => _poller?.RequestImmediateRefresh();
         _captionTimer.Tick += (_, _) => { foreach (var tile in _tiles.Values) tile.RefreshCaption(); };
         _captionTimer.Start();
-
-        // A tile's own child controls each fire enter/leave as the cursor crosses between
-        // them, so a leave is not trusted until this timer confirms the cursor is truly
-        // outside the tile's bounds - otherwise moving from the picture to the name label
-        // would flicker the overlay off and straight back on.
-        _hoverLeaveTimer.Tick += (_, _) =>
-        {
-            _hoverLeaveTimer.Stop();
-            if (_hoveredTile is null) return;
-            var stillOver = _hoveredTile.RectangleToScreen(_hoveredTile.ClientRectangle).Contains(Cursor.Position);
-            if (!stillOver)
-            {
-                _hoveredTile = null;
-                HideZoomOverlay();
-            }
-        };
-    }
-
-    /// <summary>Shows the zoom overlay for <paramref name="tile"/>, centred on this window.</summary>
-    private void ShowZoomOverlay(StudentThumbnailControl tile)
-    {
-        _hoveredTile = tile;
-        if (tile.CurrentImage is null) return;
-
-        _zoomCaption.Text = tile.StudentName;
-        _zoomPicture.Image = tile.CurrentImage;
-        PositionZoomOverlay();
-        _zoomOverlay.Visible = true;
-        _zoomOverlay.BringToFront();
-    }
-
-    private void HideZoomOverlay()
-    {
-        _zoomOverlay.Visible = false;
-        _zoomPicture.Image = null;
-    }
-
-    /// <summary>
-    /// Sizes and centres the overlay within this window's own client area - deliberately
-    /// independent of the hovered tile's position, so it is always fully visible no matter
-    /// where in the (possibly scrolled) grid that tile sits.
-    /// </summary>
-    private void PositionZoomOverlay()
-    {
-        var w = (int)(ClientSize.Width * 0.7);
-        var h = (int)(ClientSize.Height * 0.7);
-        _zoomOverlay.Size = new Size(w, h);
-        _zoomOverlay.Location = new Point((ClientSize.Width - w) / 2, (ClientSize.Height - h) / 2);
     }
 
     /// <summary>Lists every notebook currently open in OneNote, off the UI thread.</summary>
@@ -430,8 +345,6 @@ public sealed class MainForm : Form
                 Height = _config.TileDisplayHeight + 48
             };
             tile.TileActivated += (_, _) => OpenFullScreen(update.StudentId);
-            tile.TileHoverEnter += (_, _) => { _hoverLeaveTimer.Stop(); ShowZoomOverlay(tile); };
-            tile.TileHoverLeave += (_, _) => { _hoverLeaveTimer.Stop(); _hoverLeaveTimer.Start(); };
             _tiles[update.StudentId] = tile;
             _grid.Controls.Add(tile);
         }
@@ -441,19 +354,11 @@ public sealed class MainForm : Form
 
         if (_fullScreen is { IsDisposed: false } && _fullScreen.StudentId == update.StudentId)
             _fullScreen.UpdateImage(state.Image);
-
-        // Keep a live overlay in sync if this is the tile currently being peeked at.
-        if (ReferenceEquals(_hoveredTile, tile))
-            _zoomPicture.Image = state.Image;
     }
 
     private void OpenFullScreen(string studentId)
     {
         if (!_thumbnails.TryGetValue(studentId, out var state)) return;
-
-        _hoverLeaveTimer.Stop();
-        _hoveredTile = null;
-        HideZoomOverlay();
 
         if (_fullScreen is { IsDisposed: false })
             _fullScreen.Close();
@@ -465,10 +370,6 @@ public sealed class MainForm : Form
 
     private void ClearGrid()
     {
-        _hoverLeaveTimer.Stop();
-        _hoveredTile = null;
-        HideZoomOverlay();
-
         foreach (var tile in _tiles.Values) tile.Dispose();
         _tiles.Clear();
         foreach (var state in _thumbnails.Values) state.Dispose();

@@ -3,8 +3,8 @@
 A live "progress wall" for a OneNote Class Notebook: pick a notebook and a worksheet
 (a page title that recurs once inside each student's own area), and watch a scrollable
 grid of up to 30 student thumbnails update as they work - without leaving your desk.
-Hover a tile to peek at a larger preview; click it to see that student full screen. It
-is read-only: it never writes back to OneNote.
+Click a tile, or its magnifying-glass button, to see that student full screen. It is
+read-only: it never writes back to OneNote.
 
 See [PLAN.md](PLAN.md) for the full scope, architecture, and design decisions.
 
@@ -75,15 +75,22 @@ the exe.
    actually changed that tick, since each one costs a separate ~1-2s render - if several
    students type at once a cycle can simply take longer than the chosen interval, which
    is fine (calls are never made concurrently).
-5. The grid fills with one tile per student, rendered from the live page. A tile shows
-   grey with "No page yet" until that student creates the page; green once it has
+5. The grid fills with one large tile per student, rendered from the live page. A tile
+   shows grey with "No page yet" until that student creates the page; green once it has
    rendered; amber if the section is locked; the caption shows how long ago it last
-   updated.
-6. Hover a tile to peek at a larger version of its current render - no extra OneNote
-   call, it just redraws the cached image bigger. Click a tile to see that student full
-   screen; **Close** returns to the grid.
+   updated. Tiles are sized to read typing directly in the grid - scroll for more
+   students rather than squinting at tiny previews.
+6. Click a tile, or the magnifying-glass button in its bottom-right corner, to see that
+   student full screen; **Close** returns to the grid. (There is deliberately no
+   hover-triggered popup - an earlier version had one and it proved obtrusive when
+   scanning across a full grid of tiles.)
 7. **Refresh now** forces an immediate check instead of waiting for the next interval;
    **Stop** ends the watch session (OneNote is left completely untouched).
+
+If a student's edits don't seem to be showing up: every poll tick asks OneNote to sync
+the notebook from the cloud before checking anything, but that sync itself happens in
+OneNote's own background process, not instantly - so expect it to typically show up
+within a tick or two of the chosen interval, not necessarily the very next one.
 
 ## Configuration
 
@@ -94,19 +101,21 @@ the exe.
 | `excludedSectionGroupNames` | Top-level section groups never treated as students (Class Notebook system areas). |
 | `pollIntervalSeconds` | Which of the 5/10/15/30s presets is pre-selected on start-up; floored at 5s at run time regardless of what is configured. |
 | `thumbnailWidth` / `thumbnailHeight` | The actual pixel resolution a changed page is rasterised to - this is what determines legibility, default 960x720. Only pages that changed pay this cost, so it is kept fairly high. |
-| `tileDisplayWidth` / `tileDisplayHeight` | The on-screen size of a grid tile. The cached high-res bitmap is scaled down to fit this (and scaled back up for hover-zoom/full-screen), so this only controls how many tiles fit on screen, not image quality. |
+| `tileDisplayWidth` / `tileDisplayHeight` | The on-screen size of a grid tile, default 520x390 (large enough to read typing directly, at the cost of fewer tiles per screen - scroll for the rest). The cached high-res bitmap is scaled to fit this and scaled back up for full-screen, so this only controls how many tiles fit on screen, not image quality. |
 | `maxStudents` | Soft cap on students shown at once. The brief specifies 30. |
 | `genericGroupLabel` | Row label used when the notebook has no Class Notebook student structure. |
 
 ## How the live thumbnail works
 
-Each visible page is rasterised with OneNote's own `Application.Publish(pageId, path,
-PublishFormat.pfEMF, "")` call - a single-page vector export (ink included), which is
-cheaper than reading a whole notebook's content. Every poll tick does one cheap
-hierarchy read to check each student's page `lastModifiedTime`; only pages that
-actually changed are re-published and re-rasterised, so a quiet classroom costs almost
-nothing per cycle. All OneNote calls run sequentially on one dedicated background
-thread - the UI thread never touches OneNote directly.
+Each poll tick first asks OneNote to sync the notebook from the cloud
+(`Application.SyncHierarchy`) - without this, a student's edits sit on their own device
+or in the cloud and never reach the local hierarchy this app reads, no matter how often
+it polls. It then does one cheap hierarchy read to check each student's page
+`lastModifiedTime`; only pages that actually changed are re-rasterised, via OneNote's own
+`Application.Publish(pageId, path, PublishFormat.pfEMF, "")` call - a single-page vector
+export (ink included), cheaper than reading a whole notebook's content. So a quiet
+classroom costs almost nothing per cycle. All OneNote calls run sequentially on one
+dedicated background thread - the UI thread never touches OneNote directly.
 
 ## Project layout
 

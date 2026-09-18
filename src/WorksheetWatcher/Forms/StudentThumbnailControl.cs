@@ -8,11 +8,10 @@ namespace WorksheetWatcher.Forms;
 /// One student's tile in the watcher grid: a rasterised page preview, the student's
 /// name, a "last updated" caption, and a status-coloured stripe (green = just updated,
 /// grey = no page yet, amber = section locked, red = error). Raises
-/// <see cref="TileActivated"/> on click so the host can open the full-screen view, and
-/// <see cref="TileHoverEnter"/> / <see cref="TileHoverLeave"/> so the host can show a
-/// larger "peek" preview in a fixed spot on screen - deliberately not positioned near the
-/// tile itself, since a tile scrolled low in the grid would push a cursor-anchored popup
-/// off the bottom of the screen.
+/// <see cref="TileActivated"/> - clicking anywhere on the tile, or its magnifying-glass
+/// button in the bottom-right corner - so the host opens the full-screen view. There is
+/// deliberately no hover-triggered preview: an earlier version popped one up automatically
+/// on hover and it proved obtrusive when scanning across a full grid of tiles.
 /// </summary>
 public sealed class StudentThumbnailControl : UserControl
 {
@@ -45,6 +44,21 @@ public sealed class StudentThumbnailControl : UserControl
 
     private readonly Panel _statusStripe = new() { Dock = DockStyle.Top, Height = 4, BackColor = Color.Gainsboro };
 
+    // An explicit, always-visible affordance for "open this student full screen", sitting
+    // over the bottom-right corner of the preview - deliberate and discoverable, unlike a
+    // hover popup that appears uninvited.
+    private readonly Button _zoomButton = new()
+    {
+        Text = "\U0001F50D",
+        Width = 34,
+        Height = 30,
+        FlatStyle = FlatStyle.Flat,
+        BackColor = Color.White,
+        Font = new Font("Segoe UI Emoji", 12f),
+        Cursor = Cursors.Hand,
+        TabStop = false
+    };
+
     private PollStatus _status = PollStatus.NotStarted;
     private string? _statusMessage;
     private DateTime? _lastRendered;
@@ -55,25 +69,11 @@ public sealed class StudentThumbnailControl : UserControl
     /// <summary>The student's name, shown at the top of the tile.</summary>
     public string StudentName { get; }
 
-    /// <summary>The child controls that fill the tile's whole clickable/hoverable area.</summary>
-    private Control[] HitAreaControls => new Control[] { this, _picture, _nameLabel, _statusLabel, _statusStripe };
+    /// <summary>The child controls that fill the tile's whole clickable area.</summary>
+    private Control[] HitAreaControls => new Control[] { this, _picture, _nameLabel, _statusLabel, _statusStripe, _zoomButton };
 
-    /// <summary>Raised when the tile is clicked - the host opens the full-screen view.</summary>
+    /// <summary>Raised when the tile - or its zoom button - is clicked; the host opens the full-screen view.</summary>
     public event EventHandler? TileActivated;
-
-    /// <summary>Raised when the cursor enters any part of the tile - the host shows the zoom overlay.</summary>
-    public event EventHandler? TileHoverEnter;
-
-    /// <summary>
-    /// Raised when the cursor leaves any part of the tile. Moving between two of the
-    /// tile's own child controls (picture -&gt; label, say) fires this and then
-    /// <see cref="TileHoverEnter"/> again in the same tick; the host debounces that rather
-    /// than this control trying to.
-    /// </summary>
-    public event EventHandler? TileHoverLeave;
-
-    /// <summary>The tile's current rendered preview, for the host's zoom overlay to draw from.</summary>
-    public Image? CurrentImage => _picture.Image;
 
     public StudentThumbnailControl(string studentId, string studentName)
     {
@@ -83,18 +83,31 @@ public sealed class StudentThumbnailControl : UserControl
         BorderStyle = BorderStyle.FixedSingle;
         Margin = new Padding(6);
         _nameLabel.Text = studentName;
+        _zoomButton.FlatAppearance.BorderColor = Color.Gray;
 
         Controls.Add(_picture);
         Controls.Add(_statusLabel);
         Controls.Add(_nameLabel);
         Controls.Add(_statusStripe);
+        Controls.Add(_zoomButton); // added last so it paints on top of the picture
 
         foreach (var c in HitAreaControls)
-        {
             c.Click += (_, _) => TileActivated?.Invoke(this, EventArgs.Empty);
-            c.MouseEnter += (_, _) => TileHoverEnter?.Invoke(this, EventArgs.Empty);
-            c.MouseLeave += (_, _) => TileHoverLeave?.Invoke(this, EventArgs.Empty);
-        }
+
+        Resize += (_, _) => PositionZoomButton();
+        PositionZoomButton();
+    }
+
+    /// <summary>
+    /// Keeps the zoom button pinned just above the status caption, at the tile's
+    /// bottom-right - recalculated on resize rather than relying on anchoring, since the
+    /// tile's size is 0 at construction time and only set afterwards by the host.
+    /// </summary>
+    private void PositionZoomButton()
+    {
+        _zoomButton.Location = new Point(
+            ClientSize.Width - _zoomButton.Width - 6,
+            ClientSize.Height - _statusLabel.Height - _zoomButton.Height - 6);
     }
 
     /// <summary>Sets the tile's rendered preview. The control does not take ownership of disposing it.</summary>

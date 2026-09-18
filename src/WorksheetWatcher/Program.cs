@@ -196,6 +196,7 @@ internal static class Program
             for (var i = 0; i < rounds; i++)
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
+                hierarchy.Client.SyncNode(nb.Id); // matches what WatcherPollingService now does every tick
                 var targets = resolver.ResolveWorksheet(nb.Id, pageTitleFilter);
                 sw.Stop();
                 times.Add(sw.ElapsedMilliseconds);

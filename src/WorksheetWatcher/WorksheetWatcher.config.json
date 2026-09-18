@@ -7,8 +7,8 @@
   "pollIntervalSeconds": 10,
   "thumbnailWidth": 960,
   "thumbnailHeight": 720,
-  "tileDisplayWidth": 260,
-  "tileDisplayHeight": 195,
+  "tileDisplayWidth": 520,
+  "tileDisplayHeight": 390,
   "maxStudents": 30,
   "genericGroupLabel": "Section Group"
 }

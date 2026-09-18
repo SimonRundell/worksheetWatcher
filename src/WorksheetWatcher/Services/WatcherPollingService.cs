@@ -28,10 +28,13 @@ public sealed record ThumbnailUpdate(
 /// notebook/worksheet on a dedicated background (STA) thread, invoking the update
 /// callback given to the constructor for each student whose tile actually needs to change.
 ///
-/// Every tick re-resolves the worksheet (cheap: one hierarchy XML call) and compares each
-/// student's page <c>lastModifiedTime</c> against what was last rendered. Only pages that
-/// changed pay for the expensive <c>Publish</c> + rasterise step, so a quiet classroom
-/// costs almost nothing per tick. All OneNote calls happen sequentially on this one
+/// Every tick first asks OneNote to sync the notebook from the cloud - without this, a
+/// student's edits sit on their own device (or in the cloud) and never reach the local
+/// hierarchy XML this app reads, so <c>lastModifiedTime</c> simply never changes no matter
+/// how often it is polled. Only after that does it re-resolve the worksheet (cheap: one
+/// hierarchy XML call) and compare each student's page <c>lastModifiedTime</c> against
+/// what was last rendered - only pages that changed pay for the expensive
+/// <c>Publish</c> + rasterise step. All OneNote calls happen sequentially on this one
 /// thread - the callback is invoked from that same background thread, so callers updating
 /// WinForms controls must marshal back to the UI thread themselves (<c>Control.Invoke</c>),
 /// the same discipline WheresTheWork's report run uses.
@@ -112,6 +115,11 @@ public sealed class WatcherPollingService : IDisposable
         {
             try
             {
+                // Best-effort: pulls fresh content from the cloud into OneNote's local
+                // cache before we read anything. Without this, edits a student makes never
+                // show up here no matter the poll interval - see the class remarks.
+                com.SyncNode(notebookId);
+
                 var targets = resolver.ResolveWorksheet(notebookId, worksheetTitle);
                 foreach (var target in targets)
                 {

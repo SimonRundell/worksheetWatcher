@@ -52,16 +52,17 @@ public sealed class AppConfig
 
     /// <summary>
     /// On-screen width, in pixels, of a grid tile. The cached high-resolution bitmap is
-    /// scaled down to fit this - and scaled back up for the hover-zoom preview and the
-    /// full-screen view - so this only controls how many tiles fit on screen at once, not
-    /// image quality.
+    /// scaled down to fit this - and scaled back up for the full-screen view - so this
+    /// only controls how many tiles fit on screen at once, not image quality. Sized large
+    /// enough to read typing directly in the grid without zooming; fewer tiles fit per
+    /// screen as a result, but that trades in favour of scrolling over squinting.
     /// </summary>
     [JsonPropertyName("tileDisplayWidth")]
-    public int TileDisplayWidth { get; set; } = 260;
+    public int TileDisplayWidth { get; set; } = 520;
 
     /// <summary>On-screen height, in pixels, of a grid tile. See <see cref="TileDisplayWidth"/>.</summary>
     [JsonPropertyName("tileDisplayHeight")]
-    public int TileDisplayHeight { get; set; } = 195;
+    public int TileDisplayHeight { get; set; } = 390;
 
     /// <summary>Soft cap on students shown at once. The brief specifies 30.</summary>
     [JsonPropertyName("maxStudents")]
@@ -110,8 +111,8 @@ public sealed class AppConfig
             if (cfg.MaxStudents < 1) cfg.MaxStudents = 30;
             if (cfg.ThumbnailWidth < 200) cfg.ThumbnailWidth = 960;
             if (cfg.ThumbnailHeight < 150) cfg.ThumbnailHeight = 720;
-            if (cfg.TileDisplayWidth < 80) cfg.TileDisplayWidth = 260;
-            if (cfg.TileDisplayHeight < 60) cfg.TileDisplayHeight = 195;
+            if (cfg.TileDisplayWidth < 80) cfg.TileDisplayWidth = 520;
+            if (cfg.TileDisplayHeight < 60) cfg.TileDisplayHeight = 390;
             return cfg;
         }
         catch (Exception ex)
