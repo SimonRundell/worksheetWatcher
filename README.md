@@ -40,6 +40,26 @@ It lists open notebooks, walks the matched one, lists its students, and lists th
 distinct page titles found - useful for confirming a notebook's structure before
 picking a worksheet in the UI.
 
+## Publishing a standalone .exe
+
+To hand someone a single file that runs with no .NET install and nothing else needed
+alongside it:
+
+```bash
+dotnet publish src/WorksheetWatcher/WorksheetWatcher.csproj -p:PublishProfile=FolderProfile
+```
+
+(or Visual Studio's **Publish...** using the `FolderProfile` profile). This bundles the
+.NET runtime and every dependency into one ~70MB `WorksheetWatcher.exe`, targeting 64-bit
+Windows (`win-x64`). Output lands in
+`src/WorksheetWatcher/bin/Release/net8.0-windows/win-x64/publish/`, and is verified to
+run correctly (confirmed against a live OneNote via `--selftest`).
+
+The only other file in that folder is `WorksheetWatcher.config.json` - deliberately left
+loose rather than bundled, so it can be edited (poll defaults, exclusions) without
+republishing. Everything else - including the OneNote interop assembly - is baked into
+the exe.
+
 ## Using it
 
 1. Open your Class Notebook in OneNote and let it finish syncing.
