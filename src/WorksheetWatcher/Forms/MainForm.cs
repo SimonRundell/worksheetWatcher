@@ -10,13 +10,19 @@ namespace WorksheetWatcher.Forms;
 /// <summary>
 /// The application's main window: pick an open notebook and a worksheet (a page title
 /// recurring across students), start watching, and see a scrollable grid of up to
-/// <c>AppConfig.MaxStudents</c> live-updating student thumbnails. Double-click a tile to
-/// see that student full screen.
+/// <c>AppConfig.MaxStudents</c> live-updating student thumbnails. Click a tile to see that
+/// student full screen; hover a tile to peek at a larger preview without leaving the grid.
 /// </summary>
 public sealed class MainForm : Form
 {
     private const string BaseFontFamily = "Trebuchet MS";
     private const float BaseFontSize = 9.75f;
+
+    // The only poll cadences offered in the UI. Measured against a real 23-student
+    // notebook, the per-tick hierarchy re-check costs 50-200ms regardless of interval, so
+    // even 5s is safe - the real pacing limit is how many pages actually changed that
+    // tick, since each one costs a separate ~1-2s Publish/rasterise call.
+    private static readonly int[] IntervalChoiceSeconds = { 5, 10, 15, 30 };
 
     private readonly AppConfig _config;
     private readonly UserSettings _settings;
@@ -48,13 +54,11 @@ public sealed class MainForm : Form
         Margin = new Padding(0, 2, 8, 2)
     };
 
-    private readonly NumericUpDown _numInterval = new()
+    private readonly ComboBox _cboInterval = new()
     {
-        Minimum = 10,
-        Maximum = 300,
-        Value = 25,
-        Width = 60,
-        Margin = new Padding(0, 4, 8, 2)
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = 70,
+        Margin = new Padding(0, 2, 8, 2)
     };
 
     private readonly Button _btnStart = new() { Text = "▶  Start Watching" };
@@ -82,11 +86,26 @@ public sealed class MainForm : Form
     // Ticks the "updated Ns ago" captions between poll cycles - no OneNote calls here.
     private readonly System.Windows.Forms.Timer _captionTimer = new() { Interval = 5000 };
 
+    // Shared owner-drawn tooltip that shows a larger "peek" preview when a tile is
+    // hovered - reuses whatever bitmap the tile already has cached, so it costs nothing
+    // beyond the draw itself (no extra OneNote calls).
+    private readonly ToolTip _zoomTip = new()
+    {
+        OwnerDraw = true,
+        InitialDelay = 350,
+        AutomaticDelay = 350,
+        ReshowDelay = 100,
+        ShowAlways = true
+    };
+
     public MainForm()
     {
         _config = AppConfig.Load(out var configWarning);
         _settings = UserSettings.Load();
-        _numInterval.Value = Math.Clamp(_config.PollIntervalSeconds, (int)_numInterval.Minimum, (int)_numInterval.Maximum);
+
+        foreach (var seconds in IntervalChoiceSeconds) _cboInterval.Items.Add($"{seconds}s");
+        var closestInterval = IntervalChoiceSeconds.OrderBy(s => Math.Abs(s - _config.PollIntervalSeconds)).First();
+        _cboInterval.SelectedIndex = Array.IndexOf(IntervalChoiceSeconds, closestInterval);
 
         AutoScaleMode = AutoScaleMode.Font;
         AutoScaleDimensions = new SizeF(7f, 16f);
@@ -109,7 +128,7 @@ public sealed class MainForm : Form
             _lblStatus.Text = configWarning;
 
         Shown += async (_, _) => await LoadNotebooksAsync();
-        FormClosing += (_, _) => _poller?.Dispose();
+        FormClosing += (_, _) => { _poller?.Dispose(); _zoomTip.Dispose(); };
     }
 
     /// <summary>
@@ -143,8 +162,8 @@ public sealed class MainForm : Form
         top.Controls.Add(_btnRefreshNotebooks);
         top.Controls.Add(new Label { Text = "Worksheet:", AutoSize = true, Margin = new Padding(16, 8, 4, 0) });
         top.Controls.Add(_cboWorksheet);
-        top.Controls.Add(new Label { Text = "Poll every (s):", AutoSize = true, Margin = new Padding(16, 8, 4, 0) });
-        top.Controls.Add(_numInterval);
+        top.Controls.Add(new Label { Text = "Poll every:", AutoSize = true, Margin = new Padding(16, 8, 4, 0) });
+        top.Controls.Add(_cboInterval);
         top.Controls.Add(_btnStart);
         top.Controls.Add(_btnStop);
         top.Controls.Add(_btnRefreshNow);
@@ -166,7 +185,42 @@ public sealed class MainForm : Form
         _btnRefreshNow.Click += (_, _) => _poller?.RequestImmediateRefresh();
         _captionTimer.Tick += (_, _) => { foreach (var tile in _tiles.Values) tile.RefreshCaption(); };
         _captionTimer.Start();
+        _zoomTip.Popup += ZoomTip_Popup;
+        _zoomTip.Draw += ZoomTip_Draw;
     }
+
+    /// <summary>Sizes the hover-zoom popup to fit the hovered tile's cached image, capped to the screen.</summary>
+    private void ZoomTip_Popup(object? sender, PopupEventArgs e)
+    {
+        var image = TileImageFor(e.AssociatedControl);
+        if (image is null)
+        {
+            e.ToolTipSize = new Size(1, 1);
+            return;
+        }
+
+        var area = Screen.FromControl(this).WorkingArea;
+        var maxWidth = Math.Min(area.Width - 100, 1000);
+        var maxHeight = Math.Min(area.Height - 100, 750);
+        var scale = Math.Min((double)maxWidth / image.Width, (double)maxHeight / image.Height);
+        e.ToolTipSize = new Size((int)(image.Width * scale), (int)(image.Height * scale));
+    }
+
+    /// <summary>Draws the hovered tile's cached image into the tooltip - no OneNote call, just a redraw.</summary>
+    private void ZoomTip_Draw(object? sender, DrawToolTipEventArgs e)
+    {
+        var image = TileImageFor(e.AssociatedControl);
+        e.Graphics.FillRectangle(Brushes.White, e.Bounds);
+        if (image is not null) e.Graphics.DrawImage(image, e.Bounds);
+        e.Graphics.DrawRectangle(Pens.Gray, new Rectangle(e.Bounds.X, e.Bounds.Y, e.Bounds.Width - 1, e.Bounds.Height - 1));
+    }
+
+    /// <summary>
+    /// The tooltip fires for whichever child control the mouse is over (picture, name
+    /// label, ...), so this walks up to the owning tile either way.
+    /// </summary>
+    private static Image? TileImageFor(Control? control) =>
+        (control as StudentThumbnailControl)?.CurrentImage ?? (control?.Parent as StudentThumbnailControl)?.CurrentImage;
 
     /// <summary>Lists every notebook currently open in OneNote, off the UI thread.</summary>
     private async Task LoadNotebooksAsync()
@@ -260,7 +314,7 @@ public sealed class MainForm : Form
         _settings.LastWorksheetTitle = worksheetTitle;
         _settings.Save();
 
-        _config.PollIntervalSeconds = (int)_numInterval.Value;
+        _config.PollIntervalSeconds = IntervalChoiceSeconds[_cboInterval.SelectedIndex];
 
         ClearGrid();
 
@@ -273,7 +327,7 @@ public sealed class MainForm : Form
         _btnRefreshNow.Enabled = true;
         _cboNotebook.Enabled = false;
         _cboWorksheet.Enabled = false;
-        _numInterval.Enabled = false;
+        _cboInterval.Enabled = false;
         _lblStatus.Text = $"Watching '{worksheetTitle}' in '{notebook.DisplayName}'...";
     }
 
@@ -285,7 +339,7 @@ public sealed class MainForm : Form
         _btnRefreshNow.Enabled = false;
         _cboNotebook.Enabled = true;
         _cboWorksheet.Enabled = true;
-        _numInterval.Enabled = true;
+        _cboInterval.Enabled = true;
         _lblStatus.Text = "Stopped.";
     }
 
@@ -334,10 +388,11 @@ public sealed class MainForm : Form
         {
             tile = new StudentThumbnailControl(update.StudentId, update.StudentName)
             {
-                Width = _config.ThumbnailWidth + 4,
-                Height = _config.ThumbnailHeight + 48
+                Width = _config.TileDisplayWidth + 4,
+                Height = _config.TileDisplayHeight + 48
             };
             tile.TileActivated += (_, _) => OpenFullScreen(update.StudentId);
+            tile.AttachZoomTooltip(_zoomTip);
             _tiles[update.StudentId] = tile;
             _grid.Controls.Add(tile);
         }
@@ -363,7 +418,11 @@ public sealed class MainForm : Form
 
     private void ClearGrid()
     {
-        foreach (var tile in _tiles.Values) tile.Dispose();
+        foreach (var tile in _tiles.Values)
+        {
+            tile.DetachZoomTooltip(_zoomTip);
+            tile.Dispose();
+        }
         _tiles.Clear();
         foreach (var state in _thumbnails.Values) state.Dispose();
         _thumbnails.Clear();

@@ -30,6 +30,12 @@ internal static class Program
                 args.Length > 2 ? args[2] : null,
                 args.Length > 3 ? args[3] : null);
 
+        if (args.Length > 0 && string.Equals(args[0], "--polltimingtest", StringComparison.OrdinalIgnoreCase))
+            return PollTimingTest(
+                args.Length > 1 ? args[1] : null,
+                args.Length > 2 ? args[2] : null,
+                args.Length > 3 && int.TryParse(args[3], out var rounds) ? rounds : 5);
+
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) =>
@@ -138,7 +144,7 @@ internal static class Program
 
             var raster = new Services.PageRasterService(hierarchy.Client);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            using var bitmap = raster.RenderPage(target.PageId!, config.ThumbnailWidth * 3, config.ThumbnailHeight * 3);
+            using var bitmap = raster.RenderPage(target.PageId!, config.ThumbnailWidth, config.ThumbnailHeight);
             sw.Stop();
 
             var outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"WorksheetWatcher-rastertest-{DateTime.Now:HHmmss}.png");
@@ -151,6 +157,58 @@ internal static class Program
         catch (Exception ex)
         {
             Console.WriteLine($"RASTERTEST FAILED: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Times a bare <see cref="Services.WorksheetResolutionService.ResolveWorksheet"/> call
+    /// (the hierarchy re-fetch every poll tick pays even when nothing changed, with no
+    /// rasterisation) over several rounds, to find a realistic floor for the poll interval
+    /// on a real-sized notebook.
+    /// </summary>
+    private static int PollTimingTest(string? notebookFilter, string? pageTitleFilter, int rounds)
+    {
+        if (pageTitleFilter is null)
+        {
+            Console.WriteLine("Usage: --polltimingtest <notebook> <pageTitle> [rounds]");
+            return 1;
+        }
+
+        try
+        {
+            var config = AppConfig.Load(out _);
+            using var hierarchy = new OneNoteHierarchyService(config);
+            var notebooks = hierarchy.GetOpenNotebooks();
+            var nb = notebookFilter is null
+                ? notebooks.FirstOrDefault()
+                : notebooks.FirstOrDefault(n => n.Matches(notebookFilter));
+            if (nb is null)
+            {
+                Console.WriteLine($"No open notebook matches '{notebookFilter}'.");
+                return 1;
+            }
+            Console.WriteLine($"Notebook: {nb.DisplayName}");
+
+            var resolver = new Services.WorksheetResolutionService(hierarchy);
+            var times = new List<long>();
+
+            for (var i = 0; i < rounds; i++)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var targets = resolver.ResolveWorksheet(nb.Id, pageTitleFilter);
+                sw.Stop();
+                times.Add(sw.ElapsedMilliseconds);
+                Console.WriteLine($"  round {i + 1}: {sw.ElapsedMilliseconds}ms ({targets.Count(t => t.HasPage)} of {targets.Count} students have the page)");
+            }
+
+            Console.WriteLine($"\nmin={times.Min()}ms  avg={times.Average():F0}ms  max={times.Max()}ms");
+            Console.WriteLine("Polltimingtest OK.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"POLLTIMINGTEST FAILED: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             return 1;
         }
     }

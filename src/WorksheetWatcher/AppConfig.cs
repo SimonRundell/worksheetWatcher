@@ -26,20 +26,42 @@ public sealed class AppConfig
 
     /// <summary>
     /// How often the background watcher re-checks each student's page for a new
-    /// <c>lastModifiedTime</c> before deciding whether to re-render it. Floored at 10
-    /// seconds at run time regardless of what is configured, to protect OneNote's COM API
-    /// from a misconfigured value.
+    /// <c>lastModifiedTime</c> before deciding whether to re-render it. The UI only offers
+    /// 5/10/15/30s presets; this is just the one pre-selected on start-up. Floored at 5
+    /// seconds at run time regardless of what is configured - measured against a real
+    /// 23-student notebook, the hierarchy re-check itself costs 50-200ms, so 5s is safe;
+    /// the real pacing limit is how many students' pages actually changed that tick, since
+    /// each one costs a separate ~1-2s Publish/rasterise call.
     /// </summary>
     [JsonPropertyName("pollIntervalSeconds")]
-    public int PollIntervalSeconds { get; set; } = 25;
+    public int PollIntervalSeconds { get; set; } = 10;
 
-    /// <summary>Base width, in pixels, a rendered page is rasterised to for a thumbnail tile.</summary>
+    /// <summary>
+    /// Width, in pixels, a changed page is rasterised to. This is the actual pixel budget
+    /// available for reading a student's handwriting/typing, independent of how big the
+    /// tile is drawn on screen - <see cref="TileDisplayWidth"/> controls that. Kept fairly
+    /// high (a full worksheet page needs real resolution to stay legible) since only pages
+    /// that changed pay this cost.
+    /// </summary>
     [JsonPropertyName("thumbnailWidth")]
-    public int ThumbnailWidth { get; set; } = 320;
+    public int ThumbnailWidth { get; set; } = 960;
 
-    /// <summary>Base height, in pixels, a rendered page is rasterised to for a thumbnail tile.</summary>
+    /// <summary>Height, in pixels, a changed page is rasterised to. See <see cref="ThumbnailWidth"/>.</summary>
     [JsonPropertyName("thumbnailHeight")]
-    public int ThumbnailHeight { get; set; } = 240;
+    public int ThumbnailHeight { get; set; } = 720;
+
+    /// <summary>
+    /// On-screen width, in pixels, of a grid tile. The cached high-resolution bitmap is
+    /// scaled down to fit this - and scaled back up for the hover-zoom preview and the
+    /// full-screen view - so this only controls how many tiles fit on screen at once, not
+    /// image quality.
+    /// </summary>
+    [JsonPropertyName("tileDisplayWidth")]
+    public int TileDisplayWidth { get; set; } = 260;
+
+    /// <summary>On-screen height, in pixels, of a grid tile. See <see cref="TileDisplayWidth"/>.</summary>
+    [JsonPropertyName("tileDisplayHeight")]
+    public int TileDisplayHeight { get; set; } = 195;
 
     /// <summary>Soft cap on students shown at once. The brief specifies 30.</summary>
     [JsonPropertyName("maxStudents")]
@@ -86,8 +108,10 @@ public sealed class AppConfig
             var cfg = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
             cfg.SourcePath = path;
             if (cfg.MaxStudents < 1) cfg.MaxStudents = 30;
-            if (cfg.ThumbnailWidth < 40) cfg.ThumbnailWidth = 320;
-            if (cfg.ThumbnailHeight < 30) cfg.ThumbnailHeight = 240;
+            if (cfg.ThumbnailWidth < 200) cfg.ThumbnailWidth = 960;
+            if (cfg.ThumbnailHeight < 150) cfg.ThumbnailHeight = 720;
+            if (cfg.TileDisplayWidth < 80) cfg.TileDisplayWidth = 260;
+            if (cfg.TileDisplayHeight < 60) cfg.TileDisplayHeight = 195;
             return cfg;
         }
         catch (Exception ex)

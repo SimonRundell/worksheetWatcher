@@ -4,9 +4,11 @@
     "Collaboration Space",
     "Teacher Only"
   ],
-  "pollIntervalSeconds": 25,
-  "thumbnailWidth": 320,
-  "thumbnailHeight": 240,
+  "pollIntervalSeconds": 10,
+  "thumbnailWidth": 960,
+  "thumbnailHeight": 720,
+  "tileDisplayWidth": 260,
+  "tileDisplayHeight": 195,
   "maxStudents": 30,
   "genericGroupLabel": "Section Group"
 }

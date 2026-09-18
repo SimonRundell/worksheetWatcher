@@ -130,7 +130,7 @@ public sealed class WatcherPollingService : IDisposable
             }
 
             _refreshRequested = false;
-            Wait(TimeSpan.FromSeconds(Math.Max(10, _config.PollIntervalSeconds)), token);
+            Wait(TimeSpan.FromSeconds(Math.Max(5, _config.PollIntervalSeconds)), token);
         }
     }
 

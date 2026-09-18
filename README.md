@@ -3,8 +3,8 @@
 A live "progress wall" for a OneNote Class Notebook: pick a notebook and a worksheet
 (a page title that recurs once inside each student's own area), and watch a scrollable
 grid of up to 30 student thumbnails update as they work - without leaving your desk.
-Double-click a tile to see that student full screen. It is read-only: it never writes
-back to OneNote.
+Hover a tile to peek at a larger preview; click it to see that student full screen. It
+is read-only: it never writes back to OneNote.
 
 See [PLAN.md](PLAN.md) for the full scope, architecture, and design decisions.
 
@@ -48,13 +48,20 @@ picking a worksheet in the UI.
 3. Pick or type the **Worksheet** page title - the title as it appears once inside each
    student's own section(s), for example "Unit 1 Lesson 3 Worksheet". The dropdown is
    populated from every distinct page title found in the notebook.
-4. Set the poll interval (default 25s - how often changed pages are checked) and click
-   **Start Watching**.
+4. Pick a poll interval - **5s, 10s, 15s or 30s** (how often changed pages are
+   checked) - and click **Start Watching**. All four are safe: a 23-student notebook's
+   per-tick hierarchy check costs 50-200ms regardless of interval, so 5s doesn't risk
+   overloading OneNote's COM API. The real pacing limit is how many students' pages
+   actually changed that tick, since each one costs a separate ~1-2s render - if several
+   students type at once a cycle can simply take longer than the chosen interval, which
+   is fine (calls are never made concurrently).
 5. The grid fills with one tile per student, rendered from the live page. A tile shows
    grey with "No page yet" until that student creates the page; green once it has
    rendered; amber if the section is locked; the caption shows how long ago it last
    updated.
-6. Double-click a tile to see that student full screen; **Close** returns to the grid.
+6. Hover a tile to peek at a larger version of its current render - no extra OneNote
+   call, it just redraws the cached image bigger. Click a tile to see that student full
+   screen; **Close** returns to the grid.
 7. **Refresh now** forces an immediate check instead of waiting for the next interval;
    **Stop** ends the watch session (OneNote is left completely untouched).
 
@@ -65,8 +72,9 @@ picking a worksheet in the UI.
 | Key | Meaning |
 |---|---|
 | `excludedSectionGroupNames` | Top-level section groups never treated as students (Class Notebook system areas). |
-| `pollIntervalSeconds` | Default poll interval; floored at 10s at run time regardless of what is configured. |
-| `thumbnailWidth` / `thumbnailHeight` | Base render size for each tile's rasterised page image. |
+| `pollIntervalSeconds` | Which of the 5/10/15/30s presets is pre-selected on start-up; floored at 5s at run time regardless of what is configured. |
+| `thumbnailWidth` / `thumbnailHeight` | The actual pixel resolution a changed page is rasterised to - this is what determines legibility, default 960x720. Only pages that changed pay this cost, so it is kept fairly high. |
+| `tileDisplayWidth` / `tileDisplayHeight` | The on-screen size of a grid tile. The cached high-res bitmap is scaled down to fit this (and scaled back up for hover-zoom/full-screen), so this only controls how many tiles fit on screen, not image quality. |
 | `maxStudents` | Soft cap on students shown at once. The brief specifies 30. |
 | `genericGroupLabel` | Row label used when the notebook has no Class Notebook student structure. |
 
