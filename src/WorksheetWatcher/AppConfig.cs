@@ -60,11 +60,12 @@ public sealed class AppConfig
 
     /// <summary>
     /// How long, in seconds, a student's initials chip stays highlighted after a change is
-    /// detected: it blinks red for the first few seconds, then fades back to normal over
-    /// the remainder, so a quick glance at the bar shows who has been active recently.
+    /// detected: it blinks red for most of that time (up to 3 seconds), then fades back to
+    /// normal over the remainder. Short on purpose - a long flash makes everyone look
+    /// active at once. At least 2.
     /// </summary>
     [JsonPropertyName("flashSeconds")]
-    public int FlashSeconds { get; set; } = 20;
+    public int FlashSeconds { get; set; } = 5;
 
     /// <summary>Soft cap on students shown at once. The brief specifies 30.</summary>
     [JsonPropertyName("maxStudents")]
@@ -114,7 +115,7 @@ public sealed class AppConfig
             if (cfg.TileDisplayWidth < 80) cfg.TileDisplayWidth = 520;
             if (cfg.TileDisplayHeight < 60) cfg.TileDisplayHeight = 390;
             cfg.FocusWindowFraction = Math.Clamp(cfg.FocusWindowFraction, 0.2, 1.0);
-            if (cfg.FlashSeconds < 5) cfg.FlashSeconds = 20;
+            if (cfg.FlashSeconds < 2) cfg.FlashSeconds = 5;
             return cfg;
         }
         catch (Exception ex)

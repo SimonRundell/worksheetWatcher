@@ -401,6 +401,11 @@ public sealed class MainForm : Form
         _activity.SetStudent(update.StudentId, update.StudentName, update.Status != PollStatus.NotStarted);
         if (update.ChangeDetected) _activity.Flash(update.StudentId);
 
+        // Initials on the tiles come from the chips so the two always agree. Every tile is
+        // refreshed, not just this one: a later student with the same initials makes the
+        // chips (and so these labels) gain letters.
+        foreach (var (id, t) in _tiles) t.SetInitials(_activity.LabelFor(id));
+
         if (update.FocusImage is not null && _fullScreen is { IsDisposed: false } && _fullScreen.StudentId == update.StudentId)
             _fullScreen.SetContent(state.PdfBytes, state.Focus);
     }

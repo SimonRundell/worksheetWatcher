@@ -33,7 +33,7 @@ public sealed class ActivityStrip : FlowLayoutPanel
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 150 };
 
     /// <summary>How long, in seconds, a chip stays highlighted after a change (blinking, then fading).</summary>
-    public double FlashSeconds { get; set; } = 20;
+    public double FlashSeconds { get; set; } = 5;
 
     /// <summary>Raised with the student's ID when their chip is clicked.</summary>
     public event EventHandler<string>? ChipClicked;
@@ -78,6 +78,13 @@ public sealed class ActivityStrip : FlowLayoutPanel
         RelabelAll();
         RefreshColours();
     }
+
+    /// <summary>
+    /// The initials currently shown on a student's chip, or null if they have none yet.
+    /// These can gain letters later if another student turns up with the same initials, so
+    /// anything displaying them elsewhere should ask again after each <see cref="SetStudent"/>.
+    /// </summary>
+    public string? LabelFor(string studentId) => _chips.TryGetValue(studentId, out var chip) ? chip.Text : null;
 
     /// <summary>Starts a chip's red flash.</summary>
     public void Flash(string studentId)
@@ -155,6 +162,11 @@ public sealed class ActivityStrip : FlowLayoutPanel
     private void RefreshColours()
     {
         var now = DateTime.Now;
+
+        // Blink for at most 3s, but never more than 60% of the total, so a short
+        // FlashSeconds still leaves a visible fade rather than blinking then vanishing.
+        var blinkSeconds = Math.Min(BlinkSeconds, FlashSeconds * 0.6);
+
         foreach (var chip in _chips.Values)
         {
             Color back;
@@ -169,13 +181,13 @@ public sealed class ActivityStrip : FlowLayoutPanel
             else
             {
                 var age = (now - changed).TotalSeconds;
-                if (age < BlinkSeconds)
+                if (age < blinkSeconds)
                 {
                     back = (int)(age * 1000 / BlinkPhaseMilliseconds) % 2 == 0 ? Alert : AlertPale;
                 }
                 else
                 {
-                    var t = Math.Clamp((age - BlinkSeconds) / Math.Max(1, FlashSeconds - BlinkSeconds), 0, 1);
+                    var t = Math.Clamp((age - blinkSeconds) / Math.Max(0.5, FlashSeconds - blinkSeconds), 0, 1);
                     back = Blend(Alert, Idle, t);
                 }
             }

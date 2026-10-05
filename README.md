@@ -93,8 +93,9 @@ the exe.
    (hover for the full name; students who share initials get extra letters). A chip is
    grey until that student has created the page. When a student's work visibly changes
    their chip **blinks red** for a few seconds, then fades back to normal over the rest
-   of `flashSeconds` - so a glance shows who has been active in the last half minute
-   and who has not touched anything. Click a chip to jump the grid to that student.
+   of `flashSeconds` (5 by default) - so a glance shows who is typing right now and who
+   is not. The same initials follow each student's name on their tile, so a flashing
+   chip can be matched to its tile. Click a chip to jump the grid to that student.
 6. Below it, one large tile per student. Each tile is a sharp **close-up of the most
    recent change**, not a shrunken whole page: the page is compared with how it looked
    last time and the tile re-centres on whatever changed. Before any change has been
@@ -125,7 +126,7 @@ within a tick or two of the chosen interval, not necessarily the very next one.
 | `pollIntervalSeconds` | Which of the 5/10/15/30s presets is pre-selected on start-up; floored at 5s at run time regardless of what is configured. |
 | `tileDisplayWidth` / `tileDisplayHeight` | The on-screen size of a grid tile, default 520x390 (large enough to read typing directly, at the cost of fewer tiles per screen - scroll for the rest). Its shape also sets the shape of the close-up, which is rendered at twice this size so it stays crisp. |
 | `focusWindowFraction` | How much of the page's width a tile's close-up covers, default 0.5. Smaller zooms in tighter (bigger text, less context); larger shows more. It widens automatically when the change itself is bigger, such as a pasted screenshot. |
-| `flashSeconds` | How long a student's initials chip stays highlighted after a change, default 20: blinking red for the first 3 seconds, then fading. |
+| `flashSeconds` | How long a student's initials chip stays highlighted after a change, default 5: blinking red for most of that (up to 3 seconds), then fading. Raise it if you want the red to linger longer. |
 | `maxStudents` | Soft cap on students shown at once. The brief specifies 30. |
 | `genericGroupLabel` | Row label used when the notebook has no Class Notebook student structure. |
 

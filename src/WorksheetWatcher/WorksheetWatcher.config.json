@@ -8,7 +8,7 @@
   "tileDisplayWidth": 520,
   "tileDisplayHeight": 390,
   "focusWindowFraction": 0.5,
-  "flashSeconds": 20,
+  "flashSeconds": 5,
   "maxStudents": 30,
   "genericGroupLabel": "Section Group"
 }

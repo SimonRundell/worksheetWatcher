@@ -110,6 +110,13 @@ public sealed class StudentThumbnailControl : UserControl
             ClientSize.Height - _statusLabel.Height - _zoomButton.Height - 6);
     }
 
+    /// <summary>
+    /// Shows the student's initials after their name, matching their chip on the activity
+    /// bar so a tile can be tied back to a flashing chip at a glance.
+    /// </summary>
+    public void SetInitials(string? initials) =>
+        _nameLabel.Text = string.IsNullOrEmpty(initials) ? StudentName : $"{StudentName} ({initials})";
+
     /// <summary>Sets the tile's rendered preview. The control does not take ownership of disposing it.</summary>
     public void SetImage(Image? image) => _picture.Image = image;
 
