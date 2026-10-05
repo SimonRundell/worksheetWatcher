@@ -5,10 +5,10 @@
     "Teacher Only"
   ],
   "pollIntervalSeconds": 10,
-  "thumbnailWidth": 960,
-  "thumbnailHeight": 720,
   "tileDisplayWidth": 520,
   "tileDisplayHeight": 390,
+  "focusWindowFraction": 0.5,
+  "flashSeconds": 20,
   "maxStudents": 30,
   "genericGroupLabel": "Section Group"
 }

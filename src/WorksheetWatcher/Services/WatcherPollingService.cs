@@ -7,21 +7,34 @@ namespace WorksheetWatcher.Services;
 /// <summary>One student's tile as refreshed by a poll cycle.</summary>
 /// <param name="StudentId">The student this update is for.</param>
 /// <param name="StudentName">The student's name.</param>
-/// <param name="Image">
-/// The newly rendered bitmap, or null when nothing was (re)rendered - e.g. a status-only
-/// update such as "no page yet" or an error. The caller owns disposing the previous image
-/// once it has stored this one.
+/// <param name="FocusImage">
+/// The close-up of the latest change, or null when nothing new was rendered - e.g. a
+/// status-only update such as "no page yet" or an error. The caller owns disposing the
+/// previous image once it has stored this one.
 /// </param>
+/// <param name="PdfBytes">
+/// The page's full PDF, so the full-screen view can render any part of any sheet itself,
+/// sharply, at whatever size it needs. Null whenever <paramref name="FocusImage"/> is.
+/// </param>
+/// <param name="Focus">Which sheet, and where on it, <paramref name="FocusImage"/> shows.</param>
 /// <param name="LastModified">The page's last-modified time as of this render, if any.</param>
 /// <param name="Status">The outcome of this poll for this student.</param>
 /// <param name="StatusMessage">A short reason for a non-<see cref="PollStatus.Ok"/> status.</param>
+/// <param name="ChangeDetected">
+/// True when the work visibly changed since the last look (or a page just appeared that was
+/// missing before) - the signal the activity bar flashes on. False for the baseline first
+/// render, which is not a change a student made.
+/// </param>
 public sealed record ThumbnailUpdate(
     string StudentId,
     string StudentName,
-    Bitmap? Image,
+    Bitmap? FocusImage,
+    byte[]? PdfBytes,
+    PageFocus? Focus,
     DateTime? LastModified,
     PollStatus Status,
-    string? StatusMessage);
+    string? StatusMessage,
+    bool ChangeDetected);
 
 /// <summary>
 /// Owns a single OneNote COM client for the life of a watch session and polls one
@@ -33,17 +46,30 @@ public sealed record ThumbnailUpdate(
 /// hierarchy XML this app reads, so <c>lastModifiedTime</c> simply never changes no matter
 /// how often it is polled. Only after that does it re-resolve the worksheet (cheap: one
 /// hierarchy XML call) and compare each student's page <c>lastModifiedTime</c> against
-/// what was last rendered - only pages that changed pay for the expensive
-/// <c>Publish</c> + rasterise step. All OneNote calls happen sequentially on this one
-/// thread - the callback is invoked from that same background thread, so callers updating
-/// WinForms controls must marshal back to the UI thread themselves (<c>Control.Invoke</c>),
-/// the same discipline WheresTheWork's report run uses.
+/// what was last seen. Only a page whose time moved pays for the heavier work: a PDF
+/// export, a fingerprint comparison against the previous export to find where it changed
+/// (see <see cref="PageChangeAnalyzer"/>), and a sharp close-up render of that spot. A
+/// modified time that moved without anything visibly changing (OneNote touches pages when
+/// it syncs) raises no update at all.
+///
+/// All OneNote calls happen sequentially on this one thread - the callback is invoked from
+/// that same background thread, so callers updating WinForms controls must marshal back to
+/// the UI thread themselves (<c>Control.Invoke</c>), the same discipline WheresTheWork's
+/// report run uses.
 /// </summary>
 public sealed class WatcherPollingService : IDisposable
 {
+    /// <summary>What is remembered about each student between ticks.</summary>
+    private sealed class StudentTrack
+    {
+        public DocumentSignature? Signature;
+        public bool SeenWithoutPage;
+    }
+
     private readonly AppConfig _config;
     private readonly Action<ThumbnailUpdate> _onUpdate;
-    private readonly Dictionary<string, DateTime?> _lastRenderedModified = new();
+    private readonly Dictionary<string, DateTime?> _lastSeenModified = new();
+    private readonly Dictionary<string, StudentTrack> _tracks = new();
 
     private CancellationTokenSource? _cts;
     private Thread? _thread;
@@ -68,7 +94,8 @@ public sealed class WatcherPollingService : IDisposable
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
-        _lastRenderedModified.Clear();
+        _lastSeenModified.Clear();
+        _tracks.Clear();
 
         _thread = new Thread(() => Run(notebookId, worksheetTitle, token))
         {
@@ -103,13 +130,13 @@ public sealed class WatcherPollingService : IDisposable
         }
         catch (OneNoteUnavailableException ex)
         {
-            _onUpdate(new ThumbnailUpdate(string.Empty, string.Empty, null, null, PollStatus.Error, ex.Message));
+            _onUpdate(new ThumbnailUpdate(string.Empty, string.Empty, null, null, null, null, PollStatus.Error, ex.Message, false));
             return;
         }
 
         var hierarchy = new OneNoteHierarchyService(com, _config);
         var resolver = new WorksheetResolutionService(hierarchy);
-        var raster = new PageRasterService(com);
+        var exporter = new PageExportService(com);
 
         while (!token.IsCancellationRequested)
         {
@@ -124,7 +151,7 @@ public sealed class WatcherPollingService : IDisposable
                 foreach (var target in targets)
                 {
                     token.ThrowIfCancellationRequested();
-                    PollOne(target, raster);
+                    PollOne(target, exporter);
                 }
             }
             catch (OperationCanceledException)
@@ -142,27 +169,74 @@ public sealed class WatcherPollingService : IDisposable
         }
     }
 
-    private void PollOne(StudentPageTarget target, PageRasterService raster)
+    private void PollOne(StudentPageTarget target, PageExportService exporter)
     {
+        if (!_tracks.TryGetValue(target.StudentId, out var track))
+            _tracks[target.StudentId] = track = new StudentTrack();
+
         if (!target.HasPage)
         {
-            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, null, null, PollStatus.NotStarted, "No page yet"));
+            track.SeenWithoutPage = true;
+            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, null, null, null, null, PollStatus.NotStarted, "No page yet", false));
             return;
         }
 
-        _lastRenderedModified.TryGetValue(target.StudentId, out var previous);
+        _lastSeenModified.TryGetValue(target.StudentId, out var previous);
         if (previous is not null && previous == target.LastModified)
-            return; // unchanged since the last render - nothing to update
+            return; // unchanged since the last look - nothing to do
 
         try
         {
-            var bitmap = raster.RenderPage(target.PageId!, _config.ThumbnailWidth, _config.ThumbnailHeight);
-            _lastRenderedModified[target.StudentId] = target.LastModified;
-            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, bitmap, target.LastModified, PollStatus.Ok, null));
+            var pdfBytes = exporter.ExportPdf(target.PageId!);
+            using var pdf = OpenedPdf.Open(pdfBytes);
+            if (pdf.PageCount == 0)
+                throw new InvalidOperationException("OneNote exported an empty PDF.");
+
+            var signature = PageChangeAnalyzer.Sign(pdf);
+            var aspect = (double)_config.TileDisplayWidth / _config.TileDisplayHeight;
+
+            var firstLook = track.Signature is null;
+            var change = firstLook
+                ? null
+                : PageChangeAnalyzer.FindChange(track.Signature!, signature, _config.FocusWindowFraction, aspect);
+
+            if (!firstLook && change is null)
+            {
+                // The modified time moved but nothing visible did - OneNote touches pages
+                // when it syncs. Not worth redrawing, and certainly not worth a flash.
+                track.Signature = signature;
+                _lastSeenModified[target.StudentId] = target.LastModified;
+                return;
+            }
+
+            var focus = change ?? PageChangeAnalyzer.InitialFocus(signature, _config.FocusWindowFraction, aspect);
+
+            // Twice the on-screen size, so the tile stays crisp on high-DPI screens and the
+            // full-screen view has detail to scale from.
+            var closeUp = pdf.Render(focus.PageIndex, focus.Window, _config.TileDisplayWidth * 2, _config.TileDisplayHeight * 2);
+
+            var flash = change is not null || (firstLook && track.SeenWithoutPage);
+
+            // Only now is this look "banked": had the render above failed, the previous
+            // fingerprint and modified time stay put so the next tick tries again.
+            track.Signature = signature;
+            track.SeenWithoutPage = false;
+            _lastSeenModified[target.StudentId] = target.LastModified;
+            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, closeUp, pdfBytes, focus, target.LastModified, PollStatus.Ok, null, flash));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (OneNoteContentException ex)
         {
-            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, null, target.LastModified, PollStatus.Locked, ex.Message));
+            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, null, null, null, target.LastModified, PollStatus.Locked, ex.Message, false));
+        }
+        catch (Exception ex)
+        {
+            // Anything else (a PDF that will not open, a GDI+ failure) must never escape:
+            // an unhandled exception on this background thread would take the whole app down.
+            _onUpdate(new ThumbnailUpdate(target.StudentId, target.StudentName, null, null, null, target.LastModified, PollStatus.Error, $"Could not render: {ex.Message}", false));
         }
     }
 

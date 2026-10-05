@@ -37,25 +37,10 @@ public sealed class AppConfig
     public int PollIntervalSeconds { get; set; } = 10;
 
     /// <summary>
-    /// Width, in pixels, a changed page is rasterised to. This is the actual pixel budget
-    /// available for reading a student's handwriting/typing, independent of how big the
-    /// tile is drawn on screen - <see cref="TileDisplayWidth"/> controls that. Kept fairly
-    /// high (a full worksheet page needs real resolution to stay legible) since only pages
-    /// that changed pay this cost.
-    /// </summary>
-    [JsonPropertyName("thumbnailWidth")]
-    public int ThumbnailWidth { get; set; } = 960;
-
-    /// <summary>Height, in pixels, a changed page is rasterised to. See <see cref="ThumbnailWidth"/>.</summary>
-    [JsonPropertyName("thumbnailHeight")]
-    public int ThumbnailHeight { get; set; } = 720;
-
-    /// <summary>
-    /// On-screen width, in pixels, of a grid tile. The cached high-resolution bitmap is
-    /// scaled down to fit this - and scaled back up for the full-screen view - so this
-    /// only controls how many tiles fit on screen at once, not image quality. Sized large
-    /// enough to read typing directly in the grid without zooming; fewer tiles fit per
-    /// screen as a result, but that trades in favour of scrolling over squinting.
+    /// On-screen width, in pixels, of a grid tile. Its width:height ratio also sets the
+    /// shape of the close-up each tile shows around the latest change. The close-up itself
+    /// is rendered at twice this size, so the tile stays crisp and the full-screen view has
+    /// plenty of detail to scale from.
     /// </summary>
     [JsonPropertyName("tileDisplayWidth")]
     public int TileDisplayWidth { get; set; } = 520;
@@ -63,6 +48,23 @@ public sealed class AppConfig
     /// <summary>On-screen height, in pixels, of a grid tile. See <see cref="TileDisplayWidth"/>.</summary>
     [JsonPropertyName("tileDisplayHeight")]
     public int TileDisplayHeight { get; set; } = 390;
+
+    /// <summary>
+    /// How much of the page's width a tile's close-up covers, as a fraction (0.2 - 1.0).
+    /// Smaller zooms in tighter - bigger text, less surrounding context. At the default 0.5
+    /// ordinary typing is comfortably readable at tile size. The window grows automatically
+    /// if the change itself is larger than this, such as a pasted screenshot.
+    /// </summary>
+    [JsonPropertyName("focusWindowFraction")]
+    public double FocusWindowFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// How long, in seconds, a student's initials chip stays highlighted after a change is
+    /// detected: it blinks red for the first few seconds, then fades back to normal over
+    /// the remainder, so a quick glance at the bar shows who has been active recently.
+    /// </summary>
+    [JsonPropertyName("flashSeconds")]
+    public int FlashSeconds { get; set; } = 20;
 
     /// <summary>Soft cap on students shown at once. The brief specifies 30.</summary>
     [JsonPropertyName("maxStudents")]
@@ -109,10 +111,10 @@ public sealed class AppConfig
             var cfg = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
             cfg.SourcePath = path;
             if (cfg.MaxStudents < 1) cfg.MaxStudents = 30;
-            if (cfg.ThumbnailWidth < 200) cfg.ThumbnailWidth = 960;
-            if (cfg.ThumbnailHeight < 150) cfg.ThumbnailHeight = 720;
             if (cfg.TileDisplayWidth < 80) cfg.TileDisplayWidth = 520;
             if (cfg.TileDisplayHeight < 60) cfg.TileDisplayHeight = 390;
+            cfg.FocusWindowFraction = Math.Clamp(cfg.FocusWindowFraction, 0.2, 1.0);
+            if (cfg.FlashSeconds < 5) cfg.FlashSeconds = 20;
             return cfg;
         }
         catch (Exception ex)

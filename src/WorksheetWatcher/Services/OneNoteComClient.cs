@@ -107,13 +107,13 @@ public sealed class OneNoteComClient : IDisposable
 
     /// <summary>
     /// Exports a single page to <paramref name="targetFilePath"/> in the given
-    /// <paramref name="format"/> - <see cref="PublishFormat.pfEMF"/> (the default) writes
-    /// an Enhanced Metafile: a vector snapshot of exactly what OneNote renders for that
-    /// page, ink included, which is what the thumbnail rasteriser draws from. Unlike
-    /// <see cref="GetPageContentXml"/>, <c>Publish</c> needs a real file path - it cannot
-    /// write to a stream - so the caller owns cleaning up the file afterwards.
+    /// <paramref name="format"/>. <see cref="PublishFormat.pfPDF"/> (the default) writes
+    /// every A4 sheet of the page, ink included; <see cref="PublishFormat.pfEMF"/> looks
+    /// similar but contains only the first sheet. Unlike <see cref="GetPageContentXml"/>,
+    /// <c>Publish</c> needs a real file path - it cannot write to a stream - so the caller
+    /// owns cleaning up the file afterwards.
     /// </summary>
-    public void PublishPageToFile(string pageId, string targetFilePath, PublishFormat format = PublishFormat.pfEMF)
+    public void PublishPageToFile(string pageId, string targetFilePath, PublishFormat format = PublishFormat.pfPDF)
     {
         EnsureConnected();
         InvokeAction("Publish", () => _app!.Publish(pageId, targetFilePath, format, string.Empty));

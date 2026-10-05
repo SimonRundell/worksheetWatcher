@@ -1,4 +1,5 @@
 using System.Drawing;
+using WorksheetWatcher.Services;
 
 namespace WorksheetWatcher.Models;
 
@@ -46,7 +47,7 @@ public enum PollStatus
 
 /// <summary>
 /// Live, mutable view-state for one student's tile: the current rendered image plus poll
-/// bookkeeping. Owned by the UI thread; <see cref="SetImage"/> disposes the previous
+/// bookkeeping. Owned by the UI thread; <see cref="SetFocusImage"/> disposes the previous
 /// bitmap so a long watch session does not leak GDI handles.
 /// </summary>
 public sealed class ThumbnailState : IDisposable
@@ -60,8 +61,17 @@ public sealed class ThumbnailState : IDisposable
     /// <summary>The most recently resolved page target for this student.</summary>
     public StudentPageTarget? Target { get; set; }
 
-    /// <summary>The current rendered page image, or null before the first render / when there is no page.</summary>
-    public Bitmap? Image { get; private set; }
+    /// <summary>
+    /// The close-up of the most recent change, or null before the first render / when there
+    /// is no page.
+    /// </summary>
+    public Bitmap? FocusImage { get; private set; }
+
+    /// <summary>The page's full PDF as last exported, for the full-screen view to render from.</summary>
+    public byte[]? PdfBytes { get; set; }
+
+    /// <summary>Which sheet, and where on it, <see cref="FocusImage"/> shows.</summary>
+    public PageFocus? Focus { get; set; }
 
     /// <summary>The page's <c>lastModifiedTime</c> as at the last successful render.</summary>
     public DateTime? LastModified { get; set; }
@@ -75,14 +85,14 @@ public sealed class ThumbnailState : IDisposable
     /// <summary>A short human-readable reason for a non-<see cref="PollStatus.Ok"/> status.</summary>
     public string? StatusMessage { get; set; }
 
-    /// <summary>Replaces the tile's image, disposing whatever bitmap it held before.</summary>
-    public void SetImage(Bitmap? bitmap)
+    /// <summary>Replaces the tile's close-up, disposing whatever bitmap it held before.</summary>
+    public void SetFocusImage(Bitmap? bitmap)
     {
-        if (ReferenceEquals(Image, bitmap)) return;
-        Image?.Dispose();
-        Image = bitmap;
+        if (ReferenceEquals(FocusImage, bitmap)) return;
+        FocusImage?.Dispose();
+        FocusImage = bitmap;
     }
 
     /// <summary>Releases the current image.</summary>
-    public void Dispose() => Image?.Dispose();
+    public void Dispose() => FocusImage?.Dispose();
 }

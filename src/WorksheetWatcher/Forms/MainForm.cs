@@ -78,6 +78,9 @@ public sealed class MainForm : Form
         TextAlign = ContentAlignment.MiddleLeft
     };
 
+    // One initials chip per student across the top; flashes red when their work changes.
+    private readonly ActivityStrip _activity = new();
+
     private readonly FlowLayoutPanel _grid = new()
     {
         AutoScroll = true,
@@ -95,6 +98,7 @@ public sealed class MainForm : Form
     {
         _config = AppConfig.Load(out var configWarning);
         _settings = UserSettings.Load();
+        _activity.FlashSeconds = _config.FlashSeconds;
 
         foreach (var seconds in IntervalChoiceSeconds) _cboInterval.Items.Add($"{seconds}s");
         var closestInterval = IntervalChoiceSeconds.OrderBy(s => Math.Abs(s - _config.PollIntervalSeconds)).First();
@@ -165,6 +169,7 @@ public sealed class MainForm : Form
         statusPanel.Controls.Add(_lblStatus);
 
         Controls.Add(_grid);
+        Controls.Add(_activity);
         Controls.Add(statusPanel);
         Controls.Add(top);
     }
@@ -178,6 +183,13 @@ public sealed class MainForm : Form
         _btnRefreshNow.Click += (_, _) => _poller?.RequestImmediateRefresh();
         _captionTimer.Tick += (_, _) => { foreach (var tile in _tiles.Values) tile.RefreshCaption(); };
         _captionTimer.Start();
+
+        // Clicking a student's initials jumps the grid to their tile - with tiles this big,
+        // finding someone by scrolling is the slow way.
+        _activity.ChipClicked += (_, studentId) =>
+        {
+            if (_tiles.TryGetValue(studentId, out var tile)) _grid.ScrollControlIntoView(tile);
+        };
     }
 
     /// <summary>Lists every notebook currently open in OneNote, off the UI thread.</summary>
@@ -358,9 +370,11 @@ public sealed class MainForm : Form
             _thumbnails[update.StudentId] = state;
         }
 
-        if (update.Image is not null)
+        if (update.FocusImage is not null)
         {
-            state.SetImage(update.Image);
+            state.SetFocusImage(update.FocusImage);
+            state.PdfBytes = update.PdfBytes;
+            state.Focus = update.Focus;
             state.LastRendered = DateTime.Now;
         }
         state.LastModified = update.LastModified;
@@ -379,11 +393,16 @@ public sealed class MainForm : Form
             _grid.Controls.Add(tile);
         }
 
-        tile.SetImage(state.Image);
+        tile.SetImage(state.FocusImage);
         tile.SetStatus(state.Status, state.StatusMessage, state.LastRendered);
 
-        if (_fullScreen is { IsDisposed: false } && _fullScreen.StudentId == update.StudentId)
-            _fullScreen.UpdateImage(state.Image);
+        // The activity bar: a chip per student, greyed until they have a page, and flashing
+        // red the moment their work visibly changes.
+        _activity.SetStudent(update.StudentId, update.StudentName, update.Status != PollStatus.NotStarted);
+        if (update.ChangeDetected) _activity.Flash(update.StudentId);
+
+        if (update.FocusImage is not null && _fullScreen is { IsDisposed: false } && _fullScreen.StudentId == update.StudentId)
+            _fullScreen.SetContent(state.PdfBytes, state.Focus);
     }
 
     private void OpenFullScreen(string studentId)
@@ -393,7 +412,8 @@ public sealed class MainForm : Form
         if (_fullScreen is { IsDisposed: false })
             _fullScreen.Close();
 
-        _fullScreen = new FullScreenViewForm(studentId, state.StudentName, state.Image);
+        _fullScreen = new FullScreenViewForm(studentId, state.StudentName);
+        _fullScreen.SetContent(state.PdfBytes, state.Focus);
         _fullScreen.FormClosed += (_, _) => _fullScreen = null;
         _fullScreen.Show(this);
     }
@@ -405,5 +425,6 @@ public sealed class MainForm : Form
         foreach (var state in _thumbnails.Values) state.Dispose();
         _thumbnails.Clear();
         _grid.Controls.Clear();
+        _activity.Clear();
     }
 }
